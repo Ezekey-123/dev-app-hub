@@ -9,38 +9,113 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as CallbackRouteImport } from './routes/callback'
+import { Route as AppsRouteImport } from './routes/apps'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppsIndexRouteImport } from './routes/apps.index'
+import { Route as AppsAppIdRouteImport } from './routes/apps.$appId'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CallbackRoute = CallbackRouteImport.update({
+  id: '/callback',
+  path: '/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppsRoute = AppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsIndexRoute = AppsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppsRoute,
+} as any)
+const AppsAppIdRoute = AppsAppIdRouteImport.update({
+  id: '/$appId',
+  path: '/$appId',
+  getParentRoute: () => AppsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/apps': typeof AppsRouteWithChildren
+  '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/apps/$appId': typeof AppsAppIdRoute
+  '/apps/': typeof AppsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/apps/$appId': typeof AppsAppIdRoute
+  '/apps': typeof AppsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/apps': typeof AppsRouteWithChildren
+  '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/apps/$appId': typeof AppsAppIdRoute
+  '/apps/': typeof AppsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/apps' | '/callback' | '/login' | '/apps/$appId' | '/apps/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/callback' | '/login' | '/apps/$appId' | '/apps'
+  id:
+    | '__root__'
+    | '/'
+    | '/apps'
+    | '/callback'
+    | '/login'
+    | '/apps/$appId'
+    | '/apps/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppsRoute: typeof AppsRouteWithChildren
+  CallbackRoute: typeof CallbackRoute
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/callback': {
+      id: '/callback'
+      path: '/callback'
+      fullPath: '/callback'
+      preLoaderRoute: typeof CallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apps': {
+      id: '/apps'
+      path: '/apps'
+      fullPath: '/apps'
+      preLoaderRoute: typeof AppsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +123,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/': {
+      id: '/apps/'
+      path: '/'
+      fullPath: '/apps/'
+      preLoaderRoute: typeof AppsIndexRouteImport
+      parentRoute: typeof AppsRoute
+    }
+    '/apps/$appId': {
+      id: '/apps/$appId'
+      path: '/$appId'
+      fullPath: '/apps/$appId'
+      preLoaderRoute: typeof AppsAppIdRouteImport
+      parentRoute: typeof AppsRoute
+    }
   }
 }
 
+interface AppsRouteChildren {
+  AppsAppIdRoute: typeof AppsAppIdRoute
+  AppsIndexRoute: typeof AppsIndexRoute
+}
+
+const AppsRouteChildren: AppsRouteChildren = {
+  AppsAppIdRoute: AppsAppIdRoute,
+  AppsIndexRoute: AppsIndexRoute,
+}
+
+const AppsRouteWithChildren = AppsRoute._addFileChildren(AppsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppsRoute: AppsRouteWithChildren,
+  CallbackRoute: CallbackRoute,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
