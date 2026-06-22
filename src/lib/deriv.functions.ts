@@ -34,7 +34,9 @@ export const loginWithDerivToken = createServerFn({ method: "POST" })
       if (err instanceof DerivApiError) {
         return { ok: false as const, error: err.message };
       }
-      return { ok: false as const, error: "Failed to verify Deriv token" };
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[login] unexpected error:", err);
+      return { ok: false as const, error: msg || "Failed to verify Deriv token" };
     }
   });
 
