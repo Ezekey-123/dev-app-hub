@@ -4,8 +4,8 @@
  * Opens a short-lived WS connection, authorizes with the user's OAuth token,
  * sends one request, awaits the matching response (by req_id), and closes.
  *
- * Uses the global WebSocket API which is available on Cloudflare Workers
- * and Node 22+.
+ * Uses the native global WebSocket on Cloudflare Workers / Node 22+,
+ * and falls back to the `ws` npm package on Node 20 (Replit dev environment).
  */
 
 const DERIV_WS_URL = "wss://ws.derivws.com/websockets/v3";
@@ -50,6 +50,20 @@ export function getDerivRedirectUri(): string {
   return process.env.DERIV_REDIRECT_URI?.trim() || DEFAULT_REDIRECT_URI;
 }
 
+async function openWebSocket(url: string): Promise<import("ws").WebSocket> {
+  if (typeof WebSocket !== "undefined") {
+    return new WebSocket(url) as unknown as import("ws").WebSocket;
+  }
+  const { WebSocket: WS } = await import("ws");
+  return new WS(url);
+}
+
+function dataToString(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (Buffer.isBuffer(data)) return data.toString("utf8");
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+  return String(data);
+}
 
 /**
  * Open a websocket, authorize, run a sequence of requests, return their
@@ -64,11 +78,11 @@ export async function derivRequest(
   const appId = getAppId();
   const url = `${DERIV_WS_URL}?app_id=${encodeURIComponent(appId)}&l=EN`;
 
+  const ws = await openWebSocket(url);
+
   return new Promise<DerivResponse[]>((resolve, reject) => {
     let settled = false;
-    const ws = new WebSocket(url);
     const results: DerivResponse[] = [];
-    const pending = new Map<number, Record<string, unknown>>();
     let nextReqId = 1;
     let authorized = false;
     const queue = [...requests];
@@ -93,19 +107,17 @@ export async function derivRequest(
 
     const send = (payload: Record<string, unknown>) => {
       const req_id = nextReqId++;
-      pending.set(req_id, payload);
       ws.send(JSON.stringify({ ...payload, req_id }));
     };
 
-    ws.addEventListener("open", () => {
-      // Authorize first
+    ws.on("open", () => {
       send({ authorize: token });
     });
 
-    ws.addEventListener("message", (event: MessageEvent) => {
+    ws.on("message", (data: unknown) => {
       let msg: DerivResponse;
       try {
-        msg = JSON.parse(typeof event.data === "string" ? event.data : "");
+        msg = JSON.parse(dataToString(data));
       } catch {
         return;
       }
@@ -119,7 +131,6 @@ export async function derivRequest(
           finish(null, results);
           return;
         }
-        // Send all queued requests
         for (const req of queue) send(req);
         return;
       }
@@ -131,11 +142,11 @@ export async function derivRequest(
       }
     });
 
-    ws.addEventListener("error", () => {
-      finish(new DerivApiError("WSError", "Deriv WebSocket connection error"));
+    ws.on("error", (err: Error) => {
+      finish(new DerivApiError("WSError", `Deriv WebSocket error: ${err.message}`));
     });
 
-    ws.addEventListener("close", () => {
+    ws.on("close", () => {
       if (!settled) {
         finish(new DerivApiError("WSClosed", "Deriv WebSocket closed unexpectedly"));
       }
