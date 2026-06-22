@@ -133,6 +133,19 @@ export const listApps = createServerFn({ method: "GET" }).handler(
       });
     } catch (err) {
       if (err instanceof DerivApiError) {
+        // New-format pat_xxx tokens are rejected by the legacy WebSocket API.
+        // Guide the user to create a legacy token instead.
+        if (
+          err.code === "ParameterNotAllowed" ||
+          err.message.toLowerCase().includes("sanity check") ||
+          err.message.toLowerCase().includes("parameter")
+        ) {
+          throw new Error(
+            "NEW_FORMAT_TOKEN: Your pat_xxx token cannot access app data via the legacy API. " +
+            "To view your apps, create a legacy API token at app.deriv.com → Account → API Token " +
+            "with the 'Applications' scope, then log in with that token instead.",
+          );
+        }
         throw new Error(`${err.code}: ${err.message}`);
       }
       throw err;

@@ -227,6 +227,12 @@ export async function verifyPAT(token: string): Promise<AccountInfo> {
     };
   }
 
+  // 403 "Insufficient scopes" — token IS valid and authenticated,
+  // but doesn't have the Options trading scope. Accept as valid login.
+  if (res.status === 403) {
+    return {};
+  }
+
   // Error response — extract the most useful message
   let message: string;
   if (bodyJson && typeof bodyJson === "object") {
@@ -238,9 +244,6 @@ export async function verifyPAT(token: string): Promise<AccountInfo> {
 
   if (res.status === 401) {
     throw new DerivApiError("InvalidToken", `Invalid or expired token: ${message}`);
-  }
-  if (res.status === 403) {
-    throw new DerivApiError("Forbidden", `Token lacks required permission: ${message}`);
   }
   throw new DerivApiError("APIError", `Deriv API error (${res.status}): ${message}`);
 }

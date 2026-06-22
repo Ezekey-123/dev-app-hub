@@ -147,14 +147,14 @@ function LoginPage() {
                 <p className="font-semibold text-foreground">How to create an API token</p>
                 <ol className="mt-2 space-y-1.5 list-decimal list-inside">
                   <li>
-                    Go to the{" "}
+                    Go to{" "}
                     <a
                       href={DERIV_API_TOKEN_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline"
                     >
-                      Deriv API Token page
+                      app.deriv.com → Account → API Token
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   </li>
@@ -164,10 +164,14 @@ function LoginPage() {
                     <span className="rounded bg-primary/10 px-1 py-0.5 font-medium text-primary">
                       Application insight
                     </span>{" "}
-                    scope
+                    scope (and optionally <span className="rounded bg-primary/10 px-1 py-0.5 font-medium text-primary">Read</span>)
                   </li>
-                  <li>Click <strong>Create</strong> and copy the generated token</li>
+                  <li>Click <strong>Create</strong> and copy the token</li>
                 </ol>
+                <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-400">
+                  <strong>Note:</strong> Use the token from <strong>app.deriv.com</strong> (looks like 15 random characters).
+                  Tokens from <em>developers.deriv.com</em> starting with <code className="font-mono">pat_</code> are for the new platform and cannot access app listings yet.
+                </div>
               </div>
 
               {/* Token input form */}
