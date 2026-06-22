@@ -42,5 +42,5 @@ build = ["bun", "run", "build"]
 [userenv]
 
 [userenv.shared]
-DERIV_APP_ID = "33CvCzlIPmSEFbRVbHVAy"
+DERIV_APP_ID = "1089"
 DERIV_REDIRECT_URI = "https://app.appdrv.site/callback"
