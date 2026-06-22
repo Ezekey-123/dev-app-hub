@@ -147,7 +147,7 @@ function LoginPage() {
                 <p className="font-semibold text-foreground">How to create an API token</p>
                 <ol className="mt-2 space-y-1.5 list-decimal list-inside">
                   <li>
-                    Go to{" "}
+                    Go to the{" "}
                     <a
                       href={DERIV_API_TOKEN_URL}
                       target="_blank"
@@ -158,19 +158,15 @@ function LoginPage() {
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   </li>
-                  <li>Choose a token name (e.g. "DevHub")</li>
+                  <li>Enter a token name (e.g. "DevHub")</li>
                   <li>
                     Enable the{" "}
                     <span className="rounded bg-primary/10 px-1 py-0.5 font-medium text-primary">
-                      Read
+                      Application insight
                     </span>{" "}
-                    scope and{" "}
-                    <span className="rounded bg-primary/10 px-1 py-0.5 font-medium text-primary">
-                      Admin
-                    </span>{" "}
-                    scope (required for app list &amp; markup data)
+                    scope
                   </li>
-                  <li>Click <strong>Create</strong> and copy the token</li>
+                  <li>Click <strong>Create</strong> and copy the generated token</li>
                 </ol>
               </div>
 
