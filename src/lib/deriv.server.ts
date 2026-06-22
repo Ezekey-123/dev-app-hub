@@ -1,12 +1,13 @@
 /**
- * Deriv API client — dual-mode:
+ * Deriv API client — two modes:
  *
- * 1. NEW REST API (api.derivws.com) — for token verification.
- *    Auth: Authorization: Bearer <PAT>  +  Deriv-App-ID: <APP_ID>
+ * A. NEW REST API (api.derivws.com/trading/v1)
+ *    Auth: Authorization: Bearer <PAT>  +  Deriv-App-ID header
+ *    Used for: token verification (new-platform PATs)
  *
- * 2. LEGACY WebSocket API (ws.derivws.com) — for app_list / app_markup_details
- *    and as a universal fallback for token verification.
- *    Uses app_id=1089 (Deriv API Explorer) for the WS handshake.
+ * B. LEGACY WebSocket API (ws.derivws.com/websockets/v3?app_id=1089)
+ *    Used for: app_list, oauth_apps, app_markup_details
+ *    Works with: old-format 15-char PATs from app.deriv.com
  */
 
 const NEW_REST_BASE = "https://api.derivws.com/trading/v1";
@@ -72,7 +73,7 @@ function dataToString(data: unknown): string {
 
 /**
  * Legacy WebSocket: authorize then run requests.
- * Used for app_list, app_markup_details, and universal token verification.
+ * Works ONLY with old-format 15-char PATs from app.deriv.com.
  */
 export async function derivRequest(
   token: string,
@@ -175,66 +176,71 @@ export interface AccountInfo {
 }
 
 /**
- * Verify a PAT token using the legacy WebSocket authorize call.
+ * Verify a PAT against the new Deriv REST API.
  *
- * This works universally for all Deriv PATs regardless of scope or account type.
- * The authorize response itself contains account info (loginid, currency, etc).
+ * Uses GET /trading/v1/options/accounts:
+ *  - 200 (with or without accounts) → token is valid
+ *  - 401 → invalid/expired token
+ *  - 403 → insufficient scope
+ *  - other error → show raw response text
+ *
+ * New-platform PATs (from developers.deriv.com) only work here,
+ * not with the legacy WebSocket authorize call.
  */
 export async function verifyPAT(token: string): Promise<AccountInfo> {
-  // Use legacy WS with authorize-only (empty request queue) — minimal scope needed.
-  // This is universally compatible with all Deriv PAT types.
-  const url = `${LEGACY_WS_URL}?app_id=${LEGACY_WS_APP_ID}&l=EN`;
-  const ws = await openWebSocket(url);
+  const appId = getAppId();
 
-  return new Promise<AccountInfo>((resolve, reject) => {
-    let settled = false;
+  let res: Response;
+  try {
+    res = await fetch(`${NEW_REST_BASE}/options/accounts`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Deriv-App-ID": appId,
+        Accept: "application/json",
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new DerivApiError("NetworkError", `Could not reach Deriv API: ${msg}`);
+  }
 
-    const finish = (err: Error | null, value?: AccountInfo) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try { ws.close(); } catch { /* ignore */ }
-      if (err) reject(err);
-      else resolve(value ?? {});
+  // Parse response body (may or may not be JSON)
+  let bodyText = "";
+  let bodyJson: unknown = null;
+  try {
+    bodyText = await res.text();
+    if (bodyText) bodyJson = JSON.parse(bodyText);
+  } catch { /* keep bodyText, bodyJson stays null */ }
+
+  if (res.ok) {
+    // 200 — token is valid regardless of whether accounts array is empty
+    const accounts: AccountInfo[] = Array.isArray(bodyJson)
+      ? (bodyJson as AccountInfo[])
+      : ((bodyJson as { accounts?: AccountInfo[] } | null)?.accounts ?? []);
+    const first = accounts[0] ?? {};
+    return {
+      loginid: (first.loginid ?? (first as { login_id?: string }).login_id) as string | undefined,
+      currency: first.currency as string | undefined,
+      email: first.email as string | undefined,
+      country: first.country as string | undefined,
     };
+  }
 
-    const timer = setTimeout(
-      () => finish(new DerivApiError("Timeout", "Token verification timed out. Check your connection.")),
-      15_000,
-    );
+  // Error response — extract the most useful message
+  let message: string;
+  if (bodyJson && typeof bodyJson === "object") {
+    const b = bodyJson as { error?: { message?: string }; message?: string };
+    message = b?.error?.message ?? b?.message ?? bodyText;
+  } else {
+    message = bodyText || `Deriv API returned HTTP ${res.status}`;
+  }
 
-    ws.on("open", () => {
-      ws.send(JSON.stringify({ authorize: token, req_id: 1 }));
-    });
-
-    ws.on("message", (data: unknown) => {
-      let msg: Record<string, unknown>;
-      try { msg = JSON.parse(dataToString(data)); }
-      catch { return; }
-
-      if (msg.error) {
-        const err = msg.error as DerivError;
-        finish(new DerivApiError(err.code, err.message));
-        return;
-      }
-
-      if (msg.msg_type === "authorize") {
-        const auth = (msg.authorize ?? {}) as Record<string, unknown>;
-        finish(null, {
-          loginid: auth.loginid as string | undefined,
-          currency: auth.currency as string | undefined,
-          email: auth.email as string | undefined,
-          country: auth.country as string | undefined,
-        });
-      }
-    });
-
-    ws.on("error", (err: Error) => {
-      finish(new DerivApiError("WSError", `Connection error: ${err.message}`));
-    });
-
-    ws.on("close", () => {
-      if (!settled) finish(new DerivApiError("WSClosed", "Connection closed unexpectedly"));
-    });
-  });
+  if (res.status === 401) {
+    throw new DerivApiError("InvalidToken", `Invalid or expired token: ${message}`);
+  }
+  if (res.status === 403) {
+    throw new DerivApiError("Forbidden", `Token lacks required permission: ${message}`);
+  }
+  throw new DerivApiError("APIError", `Deriv API error (${res.status}): ${message}`);
 }
