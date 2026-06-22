@@ -24,7 +24,7 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
-  const { appId, authenticated } = Route.useLoaderData();
+  const { appId, redirectUri, authenticated } = Route.useLoaderData();
 
   if (authenticated) {
     // Soft redirect without throw — keeps SSR simple
@@ -34,6 +34,7 @@ function LoginPage() {
   const handleSignIn = () => {
     const url = new URL(DERIV_OAUTH_URL);
     url.searchParams.set("app_id", appId);
+    url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("l", "EN");
     window.location.href = url.toString();
   };

@@ -39,15 +39,20 @@ export const loginWithDerivToken = createServerFn({ method: "POST" })
 
 export const getSession = createServerFn({ method: "GET" }).handler(async () => {
   const { readSession } = await import("./session.server");
-  const { derivOne, DerivApiError, getDerivAppId } = await import("./deriv.server");
+  const { derivOne, DerivApiError, getDerivAppId, getDerivRedirectUri } = await import(
+    "./deriv.server"
+  );
   const sess = readSession();
-  if (!sess) return { authenticated: false as const, appId: getDerivAppId() };
+  const appId = getDerivAppId();
+  const redirectUri = getDerivRedirectUri();
+  if (!sess) return { authenticated: false as const, appId, redirectUri };
   try {
     const res = await derivOne(sess.token, { get_settings: 1 });
     const settings = (res.get_settings as Record<string, unknown> | undefined) ?? {};
     return {
       authenticated: true as const,
-      appId: getDerivAppId(),
+      appId,
+      redirectUri,
       loginid: sess.loginid,
       currency: sess.currency,
       email: settings.email as string | undefined,
@@ -57,9 +62,9 @@ export const getSession = createServerFn({ method: "GET" }).handler(async () => 
     if (err instanceof DerivApiError && err.code === "InvalidToken") {
       const { clearSession } = await import("./session.server");
       clearSession();
-      return { authenticated: false as const, appId: getDerivAppId() };
+      return { authenticated: false as const, appId, redirectUri };
     }
-    return { authenticated: true as const, appId: getDerivAppId(), loginid: sess.loginid };
+    return { authenticated: true as const, appId, redirectUri, loginid: sess.loginid };
   }
 });
 
