@@ -1,14 +1,18 @@
 /**
- * Minimal Deriv WebSocket client for server-only use.
+ * Deriv API client — dual-mode:
  *
- * Opens a short-lived WS connection, authorizes with the user's OAuth token,
- * sends one request, awaits the matching response (by req_id), and closes.
+ * 1. NEW REST API (api.derivws.com) — used for token verification / account info.
+ *    Auth: Authorization: Bearer <PAT>  +  Deriv-App-ID: <APP_ID>
+ *    Docs: developers.deriv.com
  *
- * Uses the native global WebSocket on Cloudflare Workers / Node 22+,
- * and falls back to the `ws` npm package on Node 20 (Replit dev environment).
+ * 2. LEGACY WebSocket API (ws.derivws.com) — used for app_list / app_markup_details
+ *    which have no REST equivalent in the new API yet.
+ *    Uses a fixed public app_id (1089 = Deriv API Explorer) for the WS handshake.
  */
 
-const DERIV_WS_URL = "wss://ws.derivws.com/websockets/v3";
+const NEW_REST_BASE = "https://api.derivws.com/trading/v1";
+const LEGACY_WS_URL = "wss://ws.derivws.com/websockets/v3";
+const LEGACY_WS_APP_ID = "1089";
 
 export interface DerivError {
   code: string;
@@ -50,6 +54,67 @@ export function getDerivRedirectUri(): string {
   return process.env.DERIV_REDIRECT_URI?.trim() || DEFAULT_REDIRECT_URI;
 }
 
+// ─── NEW REST API ─────────────────────────────────────────────────────────────
+
+export interface AccountInfo {
+  loginid?: string;
+  currency?: string;
+  email?: string;
+  country?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Verify a PAT token via the new Deriv REST API.
+ * Returns account info on success, throws DerivApiError on failure.
+ */
+export async function verifyPAT(token: string): Promise<AccountInfo> {
+  const appId = getAppId();
+
+  const res = await fetch(`${NEW_REST_BASE}/options/accounts`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Deriv-App-ID": appId,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    throw new DerivApiError("InvalidToken", "Invalid or expired API token");
+  }
+
+  if (!res.ok) {
+    let msg = `Deriv API error (${res.status})`;
+    try {
+      const body = await res.json() as { error?: { message?: string }; message?: string };
+      msg = body?.error?.message ?? body?.message ?? msg;
+    } catch {
+      // ignore parse errors
+    }
+    throw new DerivApiError("APIError", msg);
+  }
+
+  const data = await res.json() as unknown;
+
+  // Response may be an array of accounts or an object with an accounts field
+  const accounts: AccountInfo[] = Array.isArray(data)
+    ? (data as AccountInfo[])
+    : ((data as { accounts?: AccountInfo[] })?.accounts ?? []);
+
+  const first: AccountInfo = accounts[0] ?? (data as AccountInfo);
+
+  return {
+    loginid: first?.loginid ?? (first as { login_id?: string })?.login_id,
+    currency: first?.currency,
+    email: first?.email,
+    country: first?.country,
+    ...first,
+  };
+}
+
+// ─── LEGACY WEBSOCKET API ─────────────────────────────────────────────────────
+
 async function openWebSocket(url: string): Promise<import("ws").WebSocket> {
   if (typeof WebSocket !== "undefined") {
     return new WebSocket(url) as unknown as import("ws").WebSocket;
@@ -66,8 +131,8 @@ function dataToString(data: unknown): string {
 }
 
 /**
- * Open a websocket, authorize, run a sequence of requests, return their
- * responses in order. Closes the socket on success or error.
+ * Legacy WebSocket: authorize + run requests.
+ * Used for app_list, app_markup_details — calls not yet available in the new REST API.
  */
 export async function derivRequest(
   token: string,
@@ -75,8 +140,7 @@ export async function derivRequest(
   opts: { timeoutMs?: number } = {},
 ): Promise<DerivResponse[]> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
-  const appId = getAppId();
-  const url = `${DERIV_WS_URL}?app_id=${encodeURIComponent(appId)}&l=EN`;
+  const url = `${LEGACY_WS_URL}?app_id=${LEGACY_WS_APP_ID}&l=EN`;
 
   const ws = await openWebSocket(url);
 
@@ -91,11 +155,7 @@ export async function derivRequest(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
+      try { ws.close(); } catch { /* ignore */ }
       if (err) reject(err);
       else resolve(value ?? []);
     };
@@ -154,7 +214,7 @@ export async function derivRequest(
   });
 }
 
-/** Run a single authorized request and return its response. */
+/** Run a single authorized request on the legacy WebSocket and return its response. */
 export async function derivOne(
   token: string,
   request: Record<string, unknown>,

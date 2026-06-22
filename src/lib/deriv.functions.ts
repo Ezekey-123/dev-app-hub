@@ -1,5 +1,8 @@
 /**
  * Server functions exposed to the client. Token never leaves the cookie.
+ *
+ * Login / session verification → new Deriv REST API (api.derivws.com)
+ * App list / markup data       → legacy WebSocket API (ws.derivws.com)
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -17,16 +20,14 @@ const appIdSchema = z.object({
 export const loginWithDerivToken = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => loginSchema.parse(input))
   .handler(async ({ data }) => {
-    const { derivOne, DerivApiError } = await import("./deriv.server");
+    const { verifyPAT, DerivApiError } = await import("./deriv.server");
     const { writeSession } = await import("./session.server");
-    // Verify the token works before persisting it.
     try {
-      const res = await derivOne(data.token, { authorize: data.token });
-      const auth = res.authorize as Record<string, unknown> | undefined;
+      const account = await verifyPAT(data.token);
       writeSession({
         token: data.token,
-        loginid: (auth?.loginid as string | undefined) ?? data.loginid,
-        currency: (auth?.currency as string | undefined) ?? data.currency,
+        loginid: account.loginid ?? data.loginid,
+        currency: account.currency ?? data.currency,
       });
       return { ok: true as const };
     } catch (err) {
@@ -39,7 +40,7 @@ export const loginWithDerivToken = createServerFn({ method: "POST" })
 
 export const getSession = createServerFn({ method: "GET" }).handler(async () => {
   const { readSession } = await import("./session.server");
-  const { derivOne, DerivApiError, getDerivAppId, getDerivRedirectUri } = await import(
+  const { verifyPAT, DerivApiError, getDerivAppId, getDerivRedirectUri } = await import(
     "./deriv.server"
   );
   const sess = readSession();
@@ -47,16 +48,15 @@ export const getSession = createServerFn({ method: "GET" }).handler(async () => 
   const redirectUri = getDerivRedirectUri();
   if (!sess) return { authenticated: false as const, appId, redirectUri };
   try {
-    const res = await derivOne(sess.token, { get_settings: 1 });
-    const settings = (res.get_settings as Record<string, unknown> | undefined) ?? {};
+    const account = await verifyPAT(sess.token);
     return {
       authenticated: true as const,
       appId,
       redirectUri,
-      loginid: sess.loginid,
-      currency: sess.currency,
-      email: settings.email as string | undefined,
-      country: settings.country as string | undefined,
+      loginid: account.loginid ?? sess.loginid,
+      currency: account.currency ?? sess.currency,
+      email: account.email,
+      country: account.country,
     };
   } catch (err) {
     if (err instanceof DerivApiError && err.code === "InvalidToken") {
@@ -64,7 +64,14 @@ export const getSession = createServerFn({ method: "GET" }).handler(async () => 
       clearSession();
       return { authenticated: false as const, appId, redirectUri };
     }
-    return { authenticated: true as const, appId, redirectUri, loginid: sess.loginid };
+    // Network hiccup — keep session alive with cached data
+    return {
+      authenticated: true as const,
+      appId,
+      redirectUri,
+      loginid: sess.loginid,
+      currency: sess.currency,
+    };
   }
 });
 
@@ -75,8 +82,6 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
 });
 
 // JSON-safe shape for arbitrary Deriv API payloads.
-// Cast through JSON to strip any non-serializable values and satisfy the
-// TanStack Start serializer.
 function toJson<T = unknown>(v: unknown): T {
   return JSON.parse(JSON.stringify(v ?? null)) as T;
 }
