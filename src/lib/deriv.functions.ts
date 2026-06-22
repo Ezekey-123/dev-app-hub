@@ -69,41 +69,76 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
   return { ok: true as const };
 });
 
-export const listApps = createServerFn({ method: "GET" }).handler(async () => {
-  const { readSession } = await import("./session.server");
-  const { derivRequest, DerivApiError } = await import("./deriv.server");
-  const sess = readSession();
-  if (!sess) throw new Error("UNAUTHENTICATED");
-  try {
-    const [appList, oauthApps] = await derivRequest(sess.token, [
-      { app_list: 1 },
-      { oauth_apps: 1 },
-    ]);
-    return {
-      apps: (appList.app_list as unknown[]) ?? [],
-      oauth_apps: (oauthApps.oauth_apps as unknown[]) ?? [],
-      raw: { app_list: appList, oauth_apps: oauthApps },
-    };
-  } catch (err) {
-    if (err instanceof DerivApiError) {
-      throw new Error(`${err.code}: ${err.message}`);
+// JSON-safe shape for arbitrary Deriv API payloads.
+// Cast through JSON to strip any non-serializable values and satisfy the
+// TanStack Start serializer.
+function toJson<T = unknown>(v: unknown): T {
+  return JSON.parse(JSON.stringify(v ?? null)) as T;
+}
+
+export interface AppRecord {
+  app_id: number;
+  name?: string;
+  scopes?: string[];
+  redirect_uri?: string;
+  verification_uri?: string;
+  homepage?: string;
+  github?: string;
+  appstore?: string;
+  googleplay?: string;
+  app_markup_percentage?: number;
+  active?: number;
+  [k: string]: any;
+}
+
+export interface ListAppsResult {
+  apps: AppRecord[];
+  oauth_apps: AppRecord[];
+  raw: { app_list: any; oauth_apps: any };
+}
+
+export interface AppDetailsResult {
+  app: AppRecord | null;
+  markup: any;
+  raw: { app_get: any; app_markup_details: any };
+}
+
+export const listApps = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ListAppsResult> => {
+    const { readSession } = await import("./session.server");
+    const { derivRequest, DerivApiError } = await import("./deriv.server");
+    const sess = readSession();
+    if (!sess) throw new Error("UNAUTHENTICATED");
+    try {
+      const [appList, oauthApps] = await derivRequest(sess.token, [
+        { app_list: 1 },
+        { oauth_apps: 1 },
+      ]);
+      return toJson<ListAppsResult>({
+        apps: appList.app_list ?? [],
+        oauth_apps: oauthApps.oauth_apps ?? [],
+        raw: { app_list: appList, oauth_apps: oauthApps },
+      });
+    } catch (err) {
+      if (err instanceof DerivApiError) {
+        throw new Error(`${err.code}: ${err.message}`);
+      }
+      throw err;
     }
-    throw err;
-  }
-});
+  },
+);
 
 export const getApp = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) => appIdSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<AppDetailsResult> => {
     const { readSession } = await import("./session.server");
     const { derivRequest, derivOne, DerivApiError } = await import("./deriv.server");
     const sess = readSession();
     if (!sess) throw new Error("UNAUTHENTICATED");
     try {
       const [appGet] = await derivRequest(sess.token, [{ app_get: data.appId }]);
-      const app = appGet.app_get as Record<string, unknown> | undefined;
-      // Try to enrich with markup details — may not be available for all apps.
-      let markup: Record<string, unknown> | null = null;
+      const app = (appGet.app_get as AppRecord | undefined) ?? null;
+      let markup: any = null;
       try {
         const m = await derivOne(sess.token, {
           app_markup_details: 1,
@@ -114,15 +149,15 @@ export const getApp = createServerFn({ method: "GET" })
             .replace("T", " "),
           date_to: new Date().toISOString().slice(0, 19).replace("T", " "),
         });
-        markup = (m.app_markup_details as Record<string, unknown>) ?? null;
+        markup = m.app_markup_details ?? null;
       } catch {
         markup = null;
       }
-      return {
-        app: app ?? null,
+      return toJson<AppDetailsResult>({
+        app,
         markup,
         raw: { app_get: appGet, app_markup_details: markup },
-      };
+      });
     } catch (err) {
       if (err instanceof DerivApiError) {
         throw new Error(`${err.code}: ${err.message}`);
