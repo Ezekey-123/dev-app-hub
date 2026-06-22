@@ -34,6 +34,8 @@ interface DerivResponse {
   [key: string]: unknown;
 }
 
+const DEFAULT_REDIRECT_URI = "https://app.appdrv.site/callback";
+
 function getAppId(): string {
   const id = process.env.DERIV_APP_ID;
   if (!id) throw new Error("DERIV_APP_ID env var is not configured");
@@ -43,6 +45,11 @@ function getAppId(): string {
 export function getDerivAppId(): string {
   return getAppId();
 }
+
+export function getDerivRedirectUri(): string {
+  return process.env.DERIV_REDIRECT_URI?.trim() || DEFAULT_REDIRECT_URI;
+}
+
 
 /**
  * Open a websocket, authorize, run a sequence of requests, return their
